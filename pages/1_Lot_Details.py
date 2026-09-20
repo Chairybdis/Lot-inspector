@@ -1,25 +1,29 @@
 import streamlit as st
-import sqlite3
+import psycopg2
 import json
 
 # --- Database setup ---
-conn = sqlite3.connect("lots.db", check_same_thread=False)
-conn.execute("""
+conn = psycopg2.connect(
+    host=st.secrets["postgres"]["host"],
+    port=st.secrets["postgres"]["port"],
+    dbname=st.secrets["postgres"]["dbname"],
+    user=st.secrets["postgres"]["user"],
+    password=st.secrets["postgres"]["password"],
+)
+
+cur = conn.cursor()
+cur.execute("""
     CREATE TABLE IF NOT EXISTS lots (
         lot_number TEXT PRIMARY KEY,
         address TEXT,
         homeowner_name TEXT,
         homeowner_email TEXT,
-        inspections TEXT
+        inspections TEXT,
+        closed BOOLEAN DEFAULT FALSE
     )
-    """)
+""")
 conn.commit()
-try:
-    conn.execute("ALTER TABLE lots ADD COLUMN closed INTEGER DEFAULT 0")
-    conn.commit()
-except sqlite3.OperationalError:
-    pass
-
+#------------------------------------------------------------
 # --- Variables and information ---
 st.title("Lot Inspection Tracker")
 st.divider()
@@ -36,14 +40,16 @@ inspection_types = [
 ]
 
 # --- Pick an existing lot, or start a new one ---
-existing_lot_numbers = [row[0] for row in conn.execute("SELECT lot_number FROM lots ORDER BY lot_Number").fetchall()]
+cur.execute("SELECT lot_number FROM lots ORDER BY lot_Number")
+existing_lot_numbers = [row[0] for row in cur.fetchall()]                        
 selected = st.sidebar.selectbox("Select a lot", [NEW_LOT_LABEL] + existing_lot_numbers, key="lot_selector")
 
 if selected != NEW_LOT_LABEL:
-    row = conn.execute(
-        "SELECT lot_number, address, homeowner_name, homeowner_email, inspections, closed FROM lots WHERE lot_number = ?",
+    cur.execute(
+        "SELECT lot_number, address, homeowner_name, homeowner_email, inspections, closed FROM lots WHERE lot_number = %s",
         (selected,),
-    ).fetchone()
+    )
+    row = cur.fetchone()
 else:
     row = None
 if row is not None:
@@ -99,10 +105,16 @@ with row3[0]:
             st.error("Please do not try to enter a blank lot number.")
 
         else:
-            conn.execute(
+            cur.execute(
             """
-            INSERT OR REPLACE INTO lots (lot_number, address, homeowner_name, homeowner_email, inspections, closed)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO lots (lot_number, address, homeowner_name, homeowner_email, inspections, closed)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (lot_number) DO UPDATE SET
+            address = EXCLUDED.address,
+            homeowner_name = EXCLUDED.homeowner_name,
+            homeowner_email = EXCLUDED.homeowner_email,
+            inspections = EXCLUDED.inspections,
+            closed = EXCLUDED.closed        
             """,
             (lot_number, address, homeowner_name, homeowner_email, json.dumps(inspections), closed),
             )
@@ -110,16 +122,14 @@ with row3[0]:
             st.success(f"Saved lot {lot_number}")
             st.rerun()
 
-with row3[1]:
-    if selected != NEW_LOT_LABEL:
-        def handle_delete():
-            conn.execute("DELETE FROM lots where lot_number = ?", (lot_number,))
+def handle_delete():
+            cur.execute("DELETE FROM lots WHERE lot_number = %s", (lot_number,))
             conn.commit()
             st.session_state["lot_selector"] = NEW_LOT_LABEL
 
-        with row3[1]:
-            if selected != NEW_LOT_LABEL:
-                st.button("Delete lot", on_click=handle_delete)
+with row3[1]:     
+     if selected != NEW_LOT_LABEL:
+        st.button("Delete lot", on_click=handle_delete)
 
 with row3[2]:
     if st.button("Overview"):

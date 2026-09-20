@@ -1,8 +1,27 @@
 import streamlit as st
-import sqlite3
+import psycopg2
 import json
 
-conn = sqlite3.connect("lots.db", check_same_thread=False)
+conn = psycopg2.connect(
+    host=st.secrets["postgres"]["host"],
+    port=st.secrets["postgres"]["port"],
+    dbname=st.secrets["postgres"]["dbname"],
+    user=st.secrets["postgres"]["user"],
+    password=st.secrets["postgres"]["password"],
+)
+
+cur = conn.cursor()
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS lots (
+        lot_number TEXT PRIMARY KEY,
+        address TEXT,
+        homeowner_name TEXT,
+        homeowner_email TEXT,
+        inspections TEXT,
+        closed BOOLEAN DEFAULT FALSE
+    )
+""")
+conn.commit()
 
 inspection_types = [
         "Temp Meter", "Underground Plumbing", "Floor Slab", "Sheathing",
@@ -14,9 +33,10 @@ inspection_types = [
 st.title("Lots Overview")
 st.divider()
 
-open_lots = conn.execute(
-    "SELECT lot_number, address, inspections FROM lots WHERE closed = 0 ORDER BY lot_number"
-).fetchall()
+cur.execute(
+    "SELECT lot_number, address, inspections FROM lots WHERE NOT closed ORDER BY lot_number"
+)
+open_lots = cur.fetchall()
 
 if not open_lots:
     st.write("No open lots right now.")
