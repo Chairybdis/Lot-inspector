@@ -51,7 +51,7 @@ else:
             st.subheader(f"Lot {lot_number}")
             st.write(address)
             st.progress(completed / total)
-            st.write(f"{completed} or {total} inspections complete")
+            st.write(f"{completed} of {total} inspections complete")
             if st.button("Open", key=f"view_{lot_number}"):
                 st.session_state["lot_selector"] = lot_number
                 st.switch_page("pages/1_Lot_Details.py")
